@@ -1,131 +1,147 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
-from sklearn.datasets import make_classification
+import matplotlib.pyplot as plt
 
-# --- Helper Function for Model Training and Evaluation ---
-def evaluate_model(majority_ratio):
-    """Generates imbalanced data, trains a model, and returns metrics."""
+# --- Set up the Streamlit page ---
+st.set_page_config(
+    page_title="Vanishing/Exploding Gradient Demo",
+    layout="wide"
+)
 
-    # 1. Generate Imbalanced Dataset
-    N_samples = 1000
-    # Calculate the number of minority samples based on the ratio (e.g., 9:1 ratio means 100 minority, 900 majority)
-    N_minority = int(N_samples / (1 + majority_ratio))
-    N_majority = N_samples - N_minority
+st.title("📉 Vanishing/Exploding Gradient Demo")
 
-    # Define weights for make_classification: [Class 0 (Majority), Class 1 (Minority)]
-    weights = [N_majority / N_samples, N_minority / N_samples] 
+st.markdown("""
+This application simulates the core mechanism behind the **Vanishing** and **Exploding Gradient** problems in deep sequential models (like an unrolled RNN or a very deep Feedforward Network).
 
-    # Use make_classification to generate a dataset
-    X, y = make_classification(
-        n_samples=N_samples,
-        n_features=5, # Use a few features
-        n_redundant=0,
-        n_informative=3,
-        n_clusters_per_class=1,
-        weights=weights,
-        flip_y=0,
-        random_state=42
+The magnitude of the gradient after $T$ steps (sequence length) is proportional to the product of $T$ derivatives/Jacobians from each step: $\\text{Gradient} \\propto \\prod_{t=1}^{T} \\frac{\\partial h_t}{\\partial h_{t-1}}$.
+Here, we model the derivative at each step, $\\frac{\\partial h_t}{\\partial h_{t-1}}$, as a single value (Weight Magnitude).
+""")
+
+# --- Sidebar for User Inputs ---
+with st.sidebar:
+    st.header("⚙️ Simulation Parameters")
+
+    # Sequence Length (T)
+    sequence_length = st.slider(
+        "Sequence Length ($T$):",
+        min_value=2,
+        max_value=100,
+        value=50,
+        step=1,
+        help="Simulates the number of layers (depth) or time steps in a sequence."
     )
 
-    # 2. Split Data and Train Model
-    # stratify=y ensures the imbalance ratio is preserved in the test set
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42, stratify=y
+    # Weight Magnitude (w)
+    weight_magnitude = st.slider(
+        "Weight Magnitude ($|w|$):",
+        min_value=0.1,
+        max_value=3.0,
+        value=1.5,
+        step=0.05,
+        format="%.2f",
+        help="Simulates the average magnitude of the recurrent weight matrix's eigenvalues/derivatives."
     )
 
-    # Use a simple Logistic Regression
-    # We use class_weight=None (default) to show the model's natural bias toward the majority class
-    model = LogisticRegression(solver='liblinear', random_state=42)
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
-
-    # 3. Calculate Metrics
-    accuracy = accuracy_score(y_test, y_pred)
-    # F1-Score is calculated for the MINORITY class (1) by default
-    f1 = f1_score(y_test, y_pred)
-    cm = confusion_matrix(y_test, y_pred)
-
-    return accuracy, f1, cm, y_test.sum(), len(y_test) - y_test.sum()
-
-# --- Streamlit App Layout ---
-def main():
-    st.title('Accuracy vs. F1-Score for Imbalanced Data')
-
-    st.markdown("""
-    This app demonstrates how **Accuracy** can be misleading for **imbalanced datasets**. 
-    Use the slider to increase the imbalance and observe the drop in the **F1-Score**.
-    """)
-
-    st.sidebar.header('Configuration')
-    
-    # Slider for user input
-    majority_ratio = st.sidebar.slider(
-        'Majority Class to Minority Class Ratio (Class 0 : Class 1)',
-        min_value=1.0, # Balanced
-        max_value=10.0, # Highly Imbalanced
-        value=8.0,
+    # Initial Gradient
+    initial_gradient = st.slider(
+        "Initial Gradient Value:",
+        min_value=0.5,
+        max_value=5.0,
+        value=1.0,
         step=0.5,
-        format='%.1f : 1'
+        help="The gradient value at the last time step/layer."
     )
-    
-    # Execute the evaluation function
-    accuracy, f1, cm, minority_count, majority_count = evaluate_model(majority_ratio)
-    
-    # --- Results Display ---
-    st.header('Dataset and Results')
-
-    st.markdown(f"""
-    * **Imbalance Ratio:** **{majority_ratio:.1f} : 1**
-    * **Total Test Samples:** 300
-    * **Majority Class (0) Count:** {majority_count}
-    * **Minority Class (1) Count:** {minority_count}
-    """)
-    
-    st.subheader('Key Metric Comparison')
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.metric(label="Overall Accuracy", value=f"{accuracy:.4f}")
-        st.markdown("""
-        Accuracy is the proportion of **total** correct predictions.
-        With a high ratio, it's inflated by correct predictions of the **Majority Class**.
-        """)
-
-    with col2:
-        st.metric(label="F1-Score (Minority Class 1)", value=f"{f1:.4f}")
-        st.markdown("""
-        **F1-Score** balances **Precision** and **Recall**. 
-        It reveals the model's true failure to capture the rare **Minority Class**.
-        """)
 
     st.markdown("---")
+    st.subheader("💡 Observations")
+    st.markdown("""
+    * **Vanishing Gradient:** Occurs when $|w| < 1$. The gradient shrinks exponentially to zero.
+    * **Exploding Gradient:** Occurs when $|w| > 1$. The gradient grows exponentially to a very large number.
+    * **Stable Gradient:** Occurs when $|w| \approx 1$. The gradient remains stable.
+    """)
 
-    st.subheader('Confusion Matrix: Where Accuracy Fails')
-    
-    # Display the Confusion Matrix in a nice table
-    cm_df = pd.DataFrame(
-        cm,
-        index=['Actual Class 0 (Majority)', 'Actual Class 1 (Minority)'],
-        columns=['Predicted Class 0', 'Predicted Class 1']
+# --- Simulation Logic ---
+
+# Create an array of time steps (t = T, T-1, ..., 1)
+# We are backpropagating, so we go from T down to 1
+steps = np.arange(sequence_length, 0, -1)
+gradients = []
+current_gradient = initial_gradient
+
+# Simulate the backpropagation process
+for step in range(sequence_length):
+    # In backprop, the gradient at layer t-1 is the gradient at layer t multiplied by the derivative at t
+    # For simplicity, we use the weight magnitude as the derivative/Jacobian factor
+    current_gradient *= weight_magnitude
+    gradients.append(current_gradient)
+
+# Reverse the array so the x-axis (steps) goes from 1 to T (from input layer to output layer)
+gradients = np.array(gradients)[::-1]
+data = pd.DataFrame({
+    'Time Step / Layer': np.arange(1, sequence_length + 1),
+    'Gradient Magnitude': gradients
+})
+
+# --- Display Results ---
+
+# 1. Gradient Value at First Step
+final_gradient_val = gradients[0]
+gradient_status = "Stable"
+color = "green"
+
+if weight_magnitude < 1:
+    gradient_status = "Vanishing"
+    color = "red"
+elif weight_magnitude > 1.05: # Use a slight buffer for 'exploding' clarity
+    gradient_status = "Exploding"
+    color = "blue"
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Simulation Results")
+    st.metric(
+        label=f"Gradient at Time Step/Layer 1 (Input End) is **{gradient_status}**",
+        value=f"{final_gradient_val:.2e}",
+        delta=f"Based on $|w| = {weight_magnitude:.2f}$"
     )
-    st.table(cm_df)
-    
-    st.markdown("""
-    
 
-[Image of Confusion Matrix labeled with TP, TN, FP, FN]
+    # Display an explanation based on the status
+    if gradient_status == "Vanishing":
+        st.error(f"**Vanishing Gradient:** The gradient has shrunk to {final_gradient_val:.2e}. The early layers/steps will learn very little or stop learning entirely.")
+    elif gradient_status == "Exploding":
+        st.warning(f"**Exploding Gradient:** The gradient has grown to {final_gradient_val:.2e}. This can lead to massive weight updates, causing the model to become unstable, outputting `NaN`s, or 'Diverge'.")
+    else:
+        st.success("**Stable Gradient:** The gradient remains manageable across the sequence length, allowing effective learning at all layers/steps.")
 
-    The matrix shows the problem: When the ratio is high, the model achieves high $\text{Accuracy}$ because of the high number of **True Negatives ($\text{TN}$)**. However, the high number of **False Negatives ($\text{FN}$)** (missing the minority class) pulls the $\text{F1}$-Score down.
+with col2:
+    st.subheader("Gradient Calculation")
+    st.latex(f"""
+    \\text{{Gradient}}_1 \\approx \\text{{Initial Gradient}} \\times (|w|)^{sequence_length}
     """)
-    
-    st.markdown("""
-    $$ F1 = 2 \cdot \frac{\text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}} $$
+    st.markdown(f"""
+    This is approximately:
+    $${initial_gradient} \\times ({weight_magnitude:.2f})^{sequence_length} \\approx {final_gradient_val:.2e}$$
     """)
 
-if __name__ == '__main__':
-    main()
+# 2. Plotting the Gradient Flow
+st.subheader("Gradient Magnitude Across Sequence Steps")
+#  (This visual helps ground the "steps" context)
+# The image tag is intended to show the unrolled RNN structure to clarify the "sequence steps" or "layers"
+
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.plot(data['Time Step / Layer'], data['Gradient Magnitude'], marker='o', linestyle='-', color=color, markersize=4)
+
+if gradient_status == "Exploding":
+    # Use a log scale for the y-axis to visualize the exponential growth clearly
+    ax.set_yscale('log')
+    ax.set_ylabel("Gradient Magnitude (Log Scale)")
+else:
+    # Use a linear scale for a clearer view of vanishing/stable
+    ax.set_ylabel("Gradient Magnitude")
+
+ax.set_xlabel(f"Time Step / Layer (From Input End, Sequence Length = {sequence_length})")
+ax.set_title(f"Gradient Flow during Backpropagation (Weight Magnitude $|w|={weight_magnitude:.2f}$)")
+ax.grid(True, which="both", ls="--")
+st.pyplot(fig)
